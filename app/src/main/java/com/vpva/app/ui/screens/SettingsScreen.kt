@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlin.math.abs
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -275,7 +276,6 @@ fun DayTimeline(
                 "${wakeHour}:${wakeMinute.toString().padStart(2, '0')}",
                 style = MaterialTheme.typography.labelSmall
             )
-            // Midpoint
             val midMinutes = wakeHour * 60 + wakeMinute + totalDayMinutes / 2
             Text(
                 "${midMinutes / 60}:${(midMinutes % 60).toString().padStart(2, '0')}",
@@ -290,7 +290,7 @@ fun DayTimeline(
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Timeline bar
+        // Timeline bar — use absolute pixel positioning with Layout
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
@@ -304,37 +304,52 @@ fun DayTimeline(
             for (i in 0 until napsPerDay) {
                 val offset = napStartOffsets.getOrElse(i) { 0 }
                 val duration = napDurations.getOrElse(i) { 90 }
-                val startFraction = offset.toFloat() / totalDayMinutes
-                val widthFraction = duration.toFloat() / totalDayMinutes
+
+                // Accumulate drag in pixels, snap to 5-minute grid
+                var dragAccumPx by remember(i) { mutableFloatStateOf(0f) }
+
+                val startPx = offset * pixelsPerMinute
+                val widthPx = duration * pixelsPerMinute
+                val startDp = with(density) { startPx.toDp() }
+                val widthDp = with(density) { widthPx.toDp() }
 
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .fillMaxWidth(widthFraction)
-                        .offset(x = with(density) { (startFraction * barWidthPx).toDp() })
+                        .width(widthDp)
+                        .offset(x = startDp)
                         .clip(RoundedCornerShape(4.dp))
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.7f))
-                        .pointerInput(i, totalDayMinutes) {
-                            detectHorizontalDragGestures { _, dragAmount ->
-                                val minutesDelta = (dragAmount / pixelsPerMinute).toInt()
-                                if (minutesDelta != 0) {
-                                    val currentOffset = napStartOffsets.getOrElse(i) { 0 }
-                                    val newOffset = (currentOffset + minutesDelta)
-                                        .coerceIn(0, totalDayMinutes - duration)
+                        .pointerInput(i, totalDayMinutes, napsPerDay) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { dragAccumPx = 0f },
+                                onDragEnd = { dragAccumPx = 0f },
+                                onDragCancel = { dragAccumPx = 0f },
+                                onHorizontalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    dragAccumPx += dragAmount
+                                    val snapPx = pixelsPerMinute * 5  // 5-minute grid
+                                    if (abs(dragAccumPx) >= snapPx) {
+                                        val steps = (dragAccumPx / snapPx).toInt()
+                                        val minutesDelta = steps * 5
+                                        dragAccumPx -= steps * snapPx
 
-                                    // Don't overlap with previous nap
-                                    val minStart = if (i > 0) {
-                                        napStartOffsets[i - 1] + napDurations[i - 1] + 5
-                                    } else 0
+                                        val currentOffset = napStartOffsets.getOrElse(i) { 0 }
+                                        val newOffset = (currentOffset + minutesDelta)
+                                            .coerceIn(0, totalDayMinutes - duration)
 
-                                    // Don't overlap with next nap
-                                    val maxStart = if (i < napsPerDay - 1) {
-                                        napStartOffsets.getOrElse(i + 1) { totalDayMinutes } - duration - 5
-                                    } else totalDayMinutes - duration
+                                        // Don't overlap with neighbors
+                                        val minStart = if (i > 0) {
+                                            napStartOffsets[i - 1] + napDurations[i - 1] + 5
+                                        } else 0
+                                        val maxStart = if (i < napsPerDay - 1) {
+                                            napStartOffsets.getOrElse(i + 1) { totalDayMinutes } - duration - 5
+                                        } else totalDayMinutes - duration
 
-                                    onOffsetChange(i, newOffset.coerceIn(minStart, maxStart))
+                                        onOffsetChange(i, newOffset.coerceIn(minStart, maxStart))
+                                    }
                                 }
-                            }
+                            )
                         },
                     contentAlignment = Alignment.Center
                 ) {
