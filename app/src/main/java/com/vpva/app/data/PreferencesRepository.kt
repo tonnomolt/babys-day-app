@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.vpva.app.domain.ScheduleConfig
 import kotlinx.coroutines.flow.Flow
@@ -16,11 +17,11 @@ class PreferencesRepository(private val context: Context) {
     private object Keys {
         val WAKE_HOUR = intPreferencesKey("wake_hour")
         val WAKE_MINUTE = intPreferencesKey("wake_minute")
-        val AWAKE_WINDOW = intPreferencesKey("awake_window_min")
-        val NAP_DURATION = intPreferencesKey("nap_duration_min")
         val MILK_INTERVAL = intPreferencesKey("milk_interval_min")
         val FOOD_INTERVAL = intPreferencesKey("food_interval_min")
         val NAPS_PER_DAY = intPreferencesKey("naps_per_day")
+        val NAP_DURATIONS = stringPreferencesKey("nap_durations")  // CSV: "90,60,90"
+        val NAP_START_OFFSETS = stringPreferencesKey("nap_start_offsets")  // CSV: "120,300"
         val BEDTIME_HOUR = intPreferencesKey("bedtime_hour")
         val BEDTIME_MINUTE = intPreferencesKey("bedtime_minute")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
@@ -45,15 +46,24 @@ class PreferencesRepository(private val context: Context) {
     }
 
     val configFlow: Flow<ScheduleConfig> = context.dataStore.data.map { prefs ->
+        val naps = prefs[Keys.NAPS_PER_DAY] ?: 2
+        val durations = prefs[Keys.NAP_DURATIONS]
+            ?.split(",")
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?: listOf(90, 90)
+        val offsets = prefs[Keys.NAP_START_OFFSETS]
+            ?.split(",")
+            ?.mapNotNull { it.trim().toIntOrNull() }
+            ?: listOf(120, 300)
         ScheduleConfig(
-            awakeWindowMinutes = prefs[Keys.AWAKE_WINDOW] ?: 120,
-            napDurationMinutes = prefs[Keys.NAP_DURATION] ?: 90,
             milkIntervalMinutes = prefs[Keys.MILK_INTERVAL] ?: 180,
             foodIntervalMinutes = prefs[Keys.FOOD_INTERVAL] ?: 240,
-            napsPerDay = prefs[Keys.NAPS_PER_DAY] ?: 2,
+            napsPerDay = naps,
+            napDurations = durations,
+            napStartOffsets = offsets,
             bedtimeHour = prefs[Keys.BEDTIME_HOUR] ?: 20,
             bedtimeMinute = prefs[Keys.BEDTIME_MINUTE] ?: 0
-        )
+        ).normalized()
     }
 
     suspend fun saveWakeTime(hour: Int, minute: Int) {
@@ -64,14 +74,15 @@ class PreferencesRepository(private val context: Context) {
     }
 
     suspend fun saveConfig(config: ScheduleConfig) {
+        val normalized = config.normalized()
         context.dataStore.edit { prefs ->
-            prefs[Keys.AWAKE_WINDOW] = config.awakeWindowMinutes
-            prefs[Keys.NAP_DURATION] = config.napDurationMinutes
-            prefs[Keys.MILK_INTERVAL] = config.milkIntervalMinutes
-            prefs[Keys.FOOD_INTERVAL] = config.foodIntervalMinutes
-            prefs[Keys.NAPS_PER_DAY] = config.napsPerDay
-            prefs[Keys.BEDTIME_HOUR] = config.bedtimeHour
-            prefs[Keys.BEDTIME_MINUTE] = config.bedtimeMinute
+            prefs[Keys.MILK_INTERVAL] = normalized.milkIntervalMinutes
+            prefs[Keys.FOOD_INTERVAL] = normalized.foodIntervalMinutes
+            prefs[Keys.NAPS_PER_DAY] = normalized.napsPerDay
+            prefs[Keys.NAP_DURATIONS] = normalized.napDurations.joinToString(",")
+            prefs[Keys.NAP_START_OFFSETS] = normalized.napStartOffsets.joinToString(",")
+            prefs[Keys.BEDTIME_HOUR] = normalized.bedtimeHour
+            prefs[Keys.BEDTIME_MINUTE] = normalized.bedtimeMinute
         }
     }
 }
