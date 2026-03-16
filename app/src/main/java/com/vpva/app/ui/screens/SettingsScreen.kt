@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,7 +39,6 @@ fun SettingsScreen(onBack: () -> Unit) {
     val notificationsEnabled by repo.notificationsEnabledFlow.collectAsState(initial = true)
     val wakeTime by repo.wakeTimeFlow.collectAsState(initial = null)
 
-    // Mutable state
     var napsPerDay by remember(config) { mutableIntStateOf(config.napsPerDay) }
     var napDurations by remember(config) { mutableStateOf(config.napDurations) }
     var napStartOffsets by remember(config) { mutableStateOf(config.napStartOffsets) }
@@ -108,11 +108,9 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             // ====== PÄIVÄUNET ======
             Text("😴 Päiväunet", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
             CountSelector(label = "Päiväunien määrä", count = napsPerDay, range = 1..6) {
                 napsPerDay = it; syncNaps(it)
             }
-
             for (i in 0 until napsPerDay) {
                 SettingSlider(
                     label = "Uni ${i + 1} kesto",
@@ -125,7 +123,6 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             // ====== MAIDOT ======
             Text("🍼 Maidot", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
             CountSelector(label = "Maitoja päivässä", count = milksPerDay, range = 1..8) {
                 milksPerDay = it; milkOffsets = syncList(milkOffsets, it, 120)
             }
@@ -134,7 +131,6 @@ fun SettingsScreen(onBack: () -> Unit) {
 
             // ====== RUUAT ======
             Text("🥣 Ruuat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-
             CountSelector(label = "Ruokailuja päivässä", count = mealsPerDay, range = 1..6) {
                 mealsPerDay = it; mealOffsets = syncList(mealOffsets, it, 150)
             }
@@ -153,7 +149,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             // ====== AIKAJANA ======
             Text("📅 Päivän aikajana", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
-                "Raahaa palkkeja ja merkkejä siirtääksesi niitä aikajanalla",
+                "Raahaa palkkeja ja merkkejä siirtääksesi niitä",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -198,19 +194,17 @@ fun SettingsScreen(onBack: () -> Unit) {
             Button(
                 onClick = {
                     scope.launch {
-                        repo.saveConfig(
-                            ScheduleConfig(
-                                napsPerDay = napsPerDay,
-                                napDurations = napDurations,
-                                napStartOffsets = napStartOffsets,
-                                milksPerDay = milksPerDay,
-                                milkOffsets = milkOffsets,
-                                mealsPerDay = mealsPerDay,
-                                mealOffsets = mealOffsets,
-                                bedtimeHour = bedtimeHour,
-                                bedtimeMinute = bedtimeMinute
-                            )
-                        )
+                        repo.saveConfig(ScheduleConfig(
+                            napsPerDay = napsPerDay,
+                            napDurations = napDurations,
+                            napStartOffsets = napStartOffsets,
+                            milksPerDay = milksPerDay,
+                            milkOffsets = milkOffsets,
+                            mealsPerDay = mealsPerDay,
+                            mealOffsets = mealOffsets,
+                            bedtimeHour = bedtimeHour,
+                            bedtimeMinute = bedtimeMinute
+                        ))
                         onBack()
                     }
                 },
@@ -229,10 +223,7 @@ fun CountSelector(label: String, count: Int, range: IntRange, onChange: (Int) ->
     Column {
         Text(label, style = MaterialTheme.typography.bodyMedium)
         Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             range.forEach { n ->
                 FilterChip(
                     selected = count == n,
@@ -260,69 +251,78 @@ fun DayTimeline(
     onMealOffsetChange: (Int, Int) -> Unit
 ) {
     val density = LocalDensity.current
+    val wakeMin = wakeHour * 60 + wakeMinute
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // Time labels
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            fun fmtTime(totalMin: Int) = "${totalMin / 60}:${(totalMin % 60).toString().padStart(2, '0')}"
-            val wakeMin = wakeHour * 60 + wakeMinute
-            Text(fmtTime(wakeMin), style = MaterialTheme.typography.labelSmall)
-            Text(fmtTime(wakeMin + totalDayMinutes / 2), style = MaterialTheme.typography.labelSmall)
-            Text(fmtTime(wakeMin + totalDayMinutes), style = MaterialTheme.typography.labelSmall)
+            Text(fmtClock(wakeMin), style = MaterialTheme.typography.labelSmall)
+            Text(fmtClock(wakeMin + totalDayMinutes / 2), style = MaterialTheme.typography.labelSmall)
+            Text(fmtClock(wakeMin + totalDayMinutes), style = MaterialTheme.typography.labelSmall)
         }
 
         Spacer(modifier = Modifier.height(4.dp))
 
-        // Timeline
+        // Timeline — tall enough for 3 rows
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(80.dp)
+                .height(140.dp)
                 .clip(RoundedCornerShape(8.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             val barWidthPx = with(density) { maxWidth.toPx() }
             val pxPerMin = if (totalDayMinutes > 0) barWidthPx / totalDayMinutes else 0f
 
-            // Nap blocks (full height, background)
-            for (i in 0 until napsPerDay) {
-                val offset = napStartOffsets.getOrElse(i) { 0 }
-                val duration = napDurations.getOrElse(i) { 90 }
-
-                DraggableBlock(
-                    offsetMinutes = offset,
-                    widthMinutes = duration,
-                    pxPerMin = pxPerMin,
-                    totalDayMinutes = totalDayMinutes,
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
-                    label = "😴 ${duration}m",
-                    height = 80.dp,
-                    onOffsetChange = { onNapOffsetChange(i, it) }
-                )
-            }
-
-            // Milk markers (top row)
+            // Row 1: Milk markers (top)
             milkOffsets.forEachIndexed { i, offset ->
+                val minBound = if (i > 0) milkOffsets[i - 1] + 5 else 0
+                val maxBound = if (i < milkOffsets.size - 1) milkOffsets[i + 1] - 5 else totalDayMinutes
                 DraggableMarker(
                     offsetMinutes = offset,
                     pxPerMin = pxPerMin,
-                    totalDayMinutes = totalDayMinutes,
+                    minBound = minBound,
+                    maxBound = maxBound,
                     emoji = "🍼",
                     color = MaterialTheme.colorScheme.tertiary,
-                    yOffset = 2.dp,
+                    yOffset = 4.dp,
                     onOffsetChange = { onMilkOffsetChange(i, it) }
                 )
             }
 
-            // Meal markers (bottom row)
+            // Row 2: Nap blocks (middle)
+            for (i in 0 until napsPerDay) {
+                val offset = napStartOffsets.getOrElse(i) { 0 }
+                val duration = napDurations.getOrElse(i) { 90 }
+                val minBound = if (i > 0) napStartOffsets[i - 1] + napDurations[i - 1] + 5 else 0
+                val maxBound = if (i < napsPerDay - 1) napStartOffsets[i + 1] - duration - 5
+                else totalDayMinutes - duration
+                DraggableBlock(
+                    offsetMinutes = offset,
+                    widthMinutes = duration,
+                    pxPerMin = pxPerMin,
+                    minBound = minBound,
+                    maxBound = maxBound,
+                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                    label = "😴 ${duration}m",
+                    height = 44.dp,
+                    yOffset = 40.dp,
+                    onOffsetChange = { onNapOffsetChange(i, it) }
+                )
+            }
+
+            // Row 3: Meal markers (bottom)
             mealOffsets.forEachIndexed { i, offset ->
+                val minBound = if (i > 0) mealOffsets[i - 1] + 5 else 0
+                val maxBound = if (i < mealOffsets.size - 1) mealOffsets[i + 1] - 5 else totalDayMinutes
                 DraggableMarker(
                     offsetMinutes = offset,
                     pxPerMin = pxPerMin,
-                    totalDayMinutes = totalDayMinutes,
+                    minBound = minBound,
+                    maxBound = maxBound,
                     emoji = "🥣",
                     color = MaterialTheme.colorScheme.secondary,
-                    yOffset = 50.dp,
+                    yOffset = 100.dp,
                     onOffsetChange = { onMealOffsetChange(i, it) }
                 )
             }
@@ -331,49 +331,52 @@ fun DayTimeline(
         // Legend
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            LegendItem("😴 Uni", MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
             LegendItem("🍼 Maito", MaterialTheme.colorScheme.tertiary)
+            LegendItem("😴 Uni", MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
             LegendItem("🥣 Ruoka", MaterialTheme.colorScheme.secondary)
         }
 
-        // Time labels for each event
+        // Event time labels
         Spacer(modifier = Modifier.height(8.dp))
-        val wakeMin = wakeHour * 60 + wakeMinute
+        milkOffsets.forEachIndexed { i, offset ->
+            Text("🍼 Maito ${i + 1}: ${fmtClock(wakeMin + offset)}",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.tertiary)
+        }
         for (i in 0 until napsPerDay) {
             val startMin = wakeMin + napStartOffsets.getOrElse(i) { 0 }
             val endMin = startMin + napDurations.getOrElse(i) { 90 }
-            Text(
-                "😴 Uni ${i + 1}: ${fmtClock(startMin)} – ${fmtClock(endMin)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
-        milkOffsets.forEachIndexed { i, offset ->
-            Text("🍼 Maito ${i + 1}: ${fmtClock(wakeMin + offset)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.tertiary)
+            Text("😴 Uni ${i + 1}: ${fmtClock(startMin)} – ${fmtClock(endMin)}",
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
         }
         mealOffsets.forEachIndexed { i, offset ->
             Text("🥣 Ruoka ${i + 1}: ${fmtClock(wakeMin + offset)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary)
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
         }
     }
 }
 
+/**
+ * Raahattava palkki (päiväunille). Käyttää rememberUpdatedState jotta drag ei katkea.
+ */
 @Composable
 fun BoxWithConstraintsScope.DraggableBlock(
     offsetMinutes: Int,
     widthMinutes: Int,
     pxPerMin: Float,
-    totalDayMinutes: Int,
+    minBound: Int,
+    maxBound: Int,
     color: Color,
     label: String,
     height: Dp,
+    yOffset: Dp,
     onOffsetChange: (Int) -> Unit
 ) {
     val density = LocalDensity.current
-    var dragAccum by remember { mutableFloatStateOf(0f) }
+    // Use rememberUpdatedState so the drag gesture always sees the latest values
+    // without restarting the gesture (pointerInput key stays stable)
+    val currentOffset by rememberUpdatedState(offsetMinutes)
+    val currentMin by rememberUpdatedState(minBound)
+    val currentMax by rememberUpdatedState(maxBound)
 
     val startDp = with(density) { (offsetMinutes * pxPerMin).toDp() }
     val widthDp = with(density) { (widthMinutes * pxPerMin).toDp() }
@@ -382,77 +385,75 @@ fun BoxWithConstraintsScope.DraggableBlock(
         modifier = Modifier
             .height(height)
             .width(widthDp)
-            .offset(x = startDp)
-            .clip(RoundedCornerShape(4.dp))
+            .offset(x = startDp, y = yOffset)
+            .clip(RoundedCornerShape(6.dp))
             .background(color)
-            .pointerInput(offsetMinutes, totalDayMinutes) {
+            .pointerInput(Unit) {
                 detectHorizontalDragGestures(
-                    onDragStart = { dragAccum = 0f },
-                    onDragEnd = { dragAccum = 0f },
-                    onDragCancel = { dragAccum = 0f },
                     onHorizontalDrag = { change, amount ->
                         change.consume()
-                        dragAccum += amount
-                        val snapPx = pxPerMin * 5
-                        if (snapPx > 0 && abs(dragAccum) >= snapPx) {
-                            val steps = (dragAccum / snapPx).toInt()
-                            dragAccum -= steps * snapPx
-                            val newOffset = (offsetMinutes + steps * 5)
-                                .coerceIn(0, totalDayMinutes - widthMinutes)
-                            onOffsetChange(newOffset)
+                        val minutesDelta = (amount / pxPerMin).roundToInt()
+                        if (minutesDelta != 0) {
+                            val newOffset = (currentOffset + minutesDelta)
+                                .coerceIn(currentMin, currentMax)
+                            if (newOffset != currentOffset) {
+                                onOffsetChange(newOffset)
+                            }
                         }
                     }
                 )
             },
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = Color.White, fontSize = 11.sp, textAlign = TextAlign.Center)
+        Text(label, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
     }
 }
 
+/**
+ * Raahattava emoji-merkki (maidoille/ruuille).
+ */
 @Composable
 fun BoxWithConstraintsScope.DraggableMarker(
     offsetMinutes: Int,
     pxPerMin: Float,
-    totalDayMinutes: Int,
+    minBound: Int,
+    maxBound: Int,
     emoji: String,
     color: Color,
     yOffset: Dp,
     onOffsetChange: (Int) -> Unit
 ) {
     val density = LocalDensity.current
-    var dragAccum by remember { mutableFloatStateOf(0f) }
+    val currentOffset by rememberUpdatedState(offsetMinutes)
+    val currentMin by rememberUpdatedState(minBound)
+    val currentMax by rememberUpdatedState(maxBound)
 
-    val xDp = with(density) { (offsetMinutes * pxPerMin).toDp() } - 12.dp
+    val xDp = with(density) { (offsetMinutes * pxPerMin).toDp() } - 16.dp
 
     Box(
         modifier = Modifier
             .offset(x = xDp.coerceAtLeast(0.dp), y = yOffset)
-            .size(28.dp)
+            .size(32.dp)
             .clip(CircleShape)
-            .background(color.copy(alpha = 0.9f))
-            .pointerInput(offsetMinutes, totalDayMinutes) {
+            .background(color.copy(alpha = 0.85f))
+            .pointerInput(Unit) {
                 detectHorizontalDragGestures(
-                    onDragStart = { dragAccum = 0f },
-                    onDragEnd = { dragAccum = 0f },
-                    onDragCancel = { dragAccum = 0f },
                     onHorizontalDrag = { change, amount ->
                         change.consume()
-                        dragAccum += amount
-                        val snapPx = pxPerMin * 5
-                        if (snapPx > 0 && abs(dragAccum) >= snapPx) {
-                            val steps = (dragAccum / snapPx).toInt()
-                            dragAccum -= steps * snapPx
-                            val newOffset = (offsetMinutes + steps * 5)
-                                .coerceIn(0, totalDayMinutes)
-                            onOffsetChange(newOffset)
+                        val minutesDelta = (amount / pxPerMin).roundToInt()
+                        if (minutesDelta != 0) {
+                            val newOffset = (currentOffset + minutesDelta)
+                                .coerceIn(currentMin, currentMax)
+                            if (newOffset != currentOffset) {
+                                onOffsetChange(newOffset)
+                            }
                         }
                     }
                 )
             },
         contentAlignment = Alignment.Center
     ) {
-        Text(emoji, fontSize = 14.sp)
+        Text(emoji, fontSize = 16.sp)
     }
 }
 
