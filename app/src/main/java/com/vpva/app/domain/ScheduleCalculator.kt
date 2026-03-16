@@ -2,9 +2,6 @@ package com.vpva.app.domain
 
 import java.time.LocalTime
 
-/**
- * Laskee päivän tapahtumat herätysajan ja konfiguraation perusteella.
- */
 object ScheduleCalculator {
 
     fun calculate(wakeUpTime: LocalTime, config: ScheduleConfig): List<BabyEvent> {
@@ -12,26 +9,25 @@ object ScheduleCalculator {
         val events = mutableListOf<BabyEvent>()
         val bedtime = LocalTime.of(normalized.bedtimeHour, normalized.bedtimeMinute)
 
-        // Herätys
         events.add(BabyEvent(EventType.WAKE_UP, wakeUpTime))
 
-        // Maidot: herätysajasta alkaen tasaisin välein
-        var milkTime = wakeUpTime.plusMinutes(normalized.milkIntervalMinutes.toLong())
-        while (milkTime.isBefore(bedtime) && milkTime.isAfter(wakeUpTime)) {
-            events.add(BabyEvent(EventType.MILK, milkTime))
-            milkTime = milkTime.plusMinutes(normalized.milkIntervalMinutes.toLong())
-            if (milkTime.isBefore(wakeUpTime)) break
+        // Maidot
+        for (offset in normalized.milkOffsets) {
+            val t = wakeUpTime.plusMinutes(offset.toLong())
+            if (t.isBefore(bedtime) && !t.isBefore(wakeUpTime)) {
+                events.add(BabyEvent(EventType.MILK, t))
+            }
         }
 
-        // Ruuat: herätysajasta alkaen tasaisin välein
-        var foodTime = wakeUpTime.plusMinutes(normalized.foodIntervalMinutes.toLong())
-        while (foodTime.isBefore(bedtime) && foodTime.isAfter(wakeUpTime)) {
-            events.add(BabyEvent(EventType.FOOD, foodTime))
-            foodTime = foodTime.plusMinutes(normalized.foodIntervalMinutes.toLong())
-            if (foodTime.isBefore(wakeUpTime)) break
+        // Ruuat
+        for (offset in normalized.mealOffsets) {
+            val t = wakeUpTime.plusMinutes(offset.toLong())
+            if (t.isBefore(bedtime) && !t.isBefore(wakeUpTime)) {
+                events.add(BabyEvent(EventType.FOOD, t))
+            }
         }
 
-        // Päiväunet: jokaisella oma offset ja kesto
+        // Päiväunet
         for (i in 0 until normalized.napsPerDay) {
             val offset = normalized.napStartOffsets[i]
             val duration = normalized.napDurations[i]
@@ -41,14 +37,11 @@ object ScheduleCalculator {
 
             val napEnd = napStart.plusMinutes(duration.toLong())
             events.add(BabyEvent(EventType.NAP_START, napStart))
-            if (napEnd.isBefore(bedtime) || napEnd == bedtime) {
-                events.add(BabyEvent(EventType.NAP_END, napEnd))
-            } else {
-                events.add(BabyEvent(EventType.NAP_END, bedtime))
-            }
+            events.add(BabyEvent(EventType.NAP_END,
+                if (napEnd.isBefore(bedtime) || napEnd == bedtime) napEnd else bedtime
+            ))
         }
 
-        // Nukkumaanmeno
         events.add(BabyEvent(EventType.BEDTIME, bedtime))
 
         return events.sortedBy { it.time }

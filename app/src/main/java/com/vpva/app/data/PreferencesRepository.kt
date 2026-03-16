@@ -17,11 +17,13 @@ class PreferencesRepository(private val context: Context) {
     private object Keys {
         val WAKE_HOUR = intPreferencesKey("wake_hour")
         val WAKE_MINUTE = intPreferencesKey("wake_minute")
-        val MILK_INTERVAL = intPreferencesKey("milk_interval_min")
-        val FOOD_INTERVAL = intPreferencesKey("food_interval_min")
         val NAPS_PER_DAY = intPreferencesKey("naps_per_day")
-        val NAP_DURATIONS = stringPreferencesKey("nap_durations")  // CSV: "90,60,90"
-        val NAP_START_OFFSETS = stringPreferencesKey("nap_start_offsets")  // CSV: "120,300"
+        val NAP_DURATIONS = stringPreferencesKey("nap_durations")
+        val NAP_START_OFFSETS = stringPreferencesKey("nap_start_offsets")
+        val MILKS_PER_DAY = intPreferencesKey("milks_per_day")
+        val MILK_OFFSETS = stringPreferencesKey("milk_offsets")
+        val MEALS_PER_DAY = intPreferencesKey("meals_per_day")
+        val MEAL_OFFSETS = stringPreferencesKey("meal_offsets")
         val BEDTIME_HOUR = intPreferencesKey("bedtime_hour")
         val BEDTIME_MINUTE = intPreferencesKey("bedtime_minute")
         val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
@@ -45,22 +47,18 @@ class PreferencesRepository(private val context: Context) {
         }
     }
 
+    private fun String?.toCsvInts(): List<Int>? =
+        this?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.isNotEmpty() }
+
     val configFlow: Flow<ScheduleConfig> = context.dataStore.data.map { prefs ->
-        val naps = prefs[Keys.NAPS_PER_DAY] ?: 2
-        val durations = prefs[Keys.NAP_DURATIONS]
-            ?.split(",")
-            ?.mapNotNull { it.trim().toIntOrNull() }
-            ?: listOf(90, 90)
-        val offsets = prefs[Keys.NAP_START_OFFSETS]
-            ?.split(",")
-            ?.mapNotNull { it.trim().toIntOrNull() }
-            ?: listOf(120, 300)
         ScheduleConfig(
-            milkIntervalMinutes = prefs[Keys.MILK_INTERVAL] ?: 180,
-            foodIntervalMinutes = prefs[Keys.FOOD_INTERVAL] ?: 240,
-            napsPerDay = naps,
-            napDurations = durations,
-            napStartOffsets = offsets,
+            napsPerDay = prefs[Keys.NAPS_PER_DAY] ?: 2,
+            napDurations = prefs[Keys.NAP_DURATIONS].toCsvInts() ?: listOf(90, 90),
+            napStartOffsets = prefs[Keys.NAP_START_OFFSETS].toCsvInts() ?: listOf(120, 300),
+            milksPerDay = prefs[Keys.MILKS_PER_DAY] ?: 4,
+            milkOffsets = prefs[Keys.MILK_OFFSETS].toCsvInts() ?: listOf(0, 180, 360, 540),
+            mealsPerDay = prefs[Keys.MEALS_PER_DAY] ?: 3,
+            mealOffsets = prefs[Keys.MEAL_OFFSETS].toCsvInts() ?: listOf(60, 270, 480),
             bedtimeHour = prefs[Keys.BEDTIME_HOUR] ?: 20,
             bedtimeMinute = prefs[Keys.BEDTIME_MINUTE] ?: 0
         ).normalized()
@@ -74,15 +72,17 @@ class PreferencesRepository(private val context: Context) {
     }
 
     suspend fun saveConfig(config: ScheduleConfig) {
-        val normalized = config.normalized()
+        val n = config.normalized()
         context.dataStore.edit { prefs ->
-            prefs[Keys.MILK_INTERVAL] = normalized.milkIntervalMinutes
-            prefs[Keys.FOOD_INTERVAL] = normalized.foodIntervalMinutes
-            prefs[Keys.NAPS_PER_DAY] = normalized.napsPerDay
-            prefs[Keys.NAP_DURATIONS] = normalized.napDurations.joinToString(",")
-            prefs[Keys.NAP_START_OFFSETS] = normalized.napStartOffsets.joinToString(",")
-            prefs[Keys.BEDTIME_HOUR] = normalized.bedtimeHour
-            prefs[Keys.BEDTIME_MINUTE] = normalized.bedtimeMinute
+            prefs[Keys.NAPS_PER_DAY] = n.napsPerDay
+            prefs[Keys.NAP_DURATIONS] = n.napDurations.joinToString(",")
+            prefs[Keys.NAP_START_OFFSETS] = n.napStartOffsets.joinToString(",")
+            prefs[Keys.MILKS_PER_DAY] = n.milksPerDay
+            prefs[Keys.MILK_OFFSETS] = n.milkOffsets.joinToString(",")
+            prefs[Keys.MEALS_PER_DAY] = n.mealsPerDay
+            prefs[Keys.MEAL_OFFSETS] = n.mealOffsets.joinToString(",")
+            prefs[Keys.BEDTIME_HOUR] = n.bedtimeHour
+            prefs[Keys.BEDTIME_MINUTE] = n.bedtimeMinute
         }
     }
 }
